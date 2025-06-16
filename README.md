@@ -12,4 +12,28 @@ Finally, we prepare a two-qutrit Bell state $|\psi\rangle = \frac{1}{\sqrt{3}}(|
 We note that, in our setup, the complete time taken for Bell state preparation is $\sim 514$ ns and is less than the gate time of cross-Kerr-based entangling gates.  
 
 This repository contains the code corresponding to the experiments that were performed as part of the paper. All the implementations are present in the Jupyter notebooks. The notebooks are self-explanatory.
+
+_Used Packages_:
+1. qiskit(==1.4)
+2. qiskit-dynamics(==0.5.1)
+
+In order to simulate the experiments, a small change in the source code of qiskit-dynamics(==0.5.1) is required, as explained below:
+
+In qiskit_dynamics/backend/dynamics_backend.py, lines 198-201, change the code block
+
+    if target is None:
+        target = Target()
+    else:
+        target = copy.copy(target)
+
+to
+
+    if target is None:
+        target = Target(num_qubits = len(self.options.subsystem_dims))
+    else:
+        target = copy.copy(target)
+
+and comment out *target.num_qubits = len(self.options.subsystem_dims)* in line 219. In the version of the packages mentioned above, you might encounter an error when instantiating a DynamicsBackend if the above change in the source code is not done.
+
+
 In case of any queries, please feel free to contact Tharrma at tharrmashasthav@iiitd.ac.in.
