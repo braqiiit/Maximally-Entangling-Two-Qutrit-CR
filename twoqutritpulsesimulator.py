@@ -55,13 +55,12 @@ class TwoQutritPulseSimulator():
         drive_op0 = 2 * np.pi * self.r0 * (a0 + a0dag)
         drive_op1 = 2 * np.pi * self.r1 * (a1 + a1dag)
 
-        # build solver
+        # Building solver
         dt = 1/4.5e9
         
         self.solver = Solver(
             static_hamiltonian=static_ham_full,
             hamiltonian_operators=[drive_op0, drive_op1, drive_op0, drive_op1],
-            # rotating_frame=static_ham_full,
             hamiltonian_channels=["d0", "d1", "u0", "u1"],
             channel_carrier_freqs={"d0": self.v0, "d1": self.v1, "u0": self.v1, "u1": self.v0},
             dt=dt,
@@ -69,7 +68,7 @@ class TwoQutritPulseSimulator():
         )
 
         # Consistent solver option to use throughout notebook
-        solver_options = {"method": "jax_odeint", "atol": 1e-11, "rtol": 1e-11, "hmax": dt}
+        solver_options = {"method": "jax_odeint", "atol": 1e-12, "rtol": 1e-10, "hmax": dt}
         
         self.backend = DynamicsBackend(
             solver=self.solver,
@@ -80,47 +79,10 @@ class TwoQutritPulseSimulator():
 
         self.target = self.backend.target
 
-        # qubit properties
+        # Qubit properties
         self.target.qubit_properties = [QubitProperties(frequency=self.v0), QubitProperties(frequency=self.v1)]
-        
-        #####################################################################################
-        ##### add instructions for qutrits #####
 
-        x01_gate = Gate('x01', 1, [])
-        
-        with pulse.build() as x01_0:
-            pulse.Play(pulse.Gaussian(320, 0.5, 80), pulse.DriveChannel(0))
-        
-        with pulse.build() as x01_1:
-            pulse.Play(pulse.Gaussian(320, 0.5, 80), pulse.DriveChannel(1))
-
-        self.target.add_instruction(
-            x01_gate,
-            {
-                (0,): InstructionProperties(calibration=x01_0), 
-                (1,): InstructionProperties(calibration=x01_1)
-            }
-        )
-        
-        self.target.add_instruction(CXGate(), properties={(0, 1): None, (1, 0): None})
-        
-        #### Add RZ instruction as phase shift for drag cal  #####
-        phi = Parameter("phi")
-        with pulse.build() as rz0:
-            pulse.shift_phase(phi, pulse.DriveChannel(0))
-            pulse.shift_phase(phi, pulse.ControlChannel(1))
-        
-        with pulse.build() as rz1:
-            pulse.shift_phase(phi, pulse.DriveChannel(1))
-            pulse.shift_phase(phi, pulse.ControlChannel(0))
-        
-        self.target.add_instruction(
-            RZGate(phi),
-            {(0,): InstructionProperties(calibration=rz0), (1,): InstructionProperties(calibration=rz1)}
-        )
-
-        ##################################################################################
-
+        # Connectivity Constraints
         self.backend.set_options(control_channel_map={(0, 1): 0, (1, 0): 1})
 
     def get_backend(self):
