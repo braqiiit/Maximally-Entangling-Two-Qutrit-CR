@@ -746,19 +746,15 @@ class TwoQutritProcessTomography():
     The process matrix can be obtained by executing the .run() method of
     the class object.
     """        
-    def __init__(self, gate=None, gate_pulse=None, backend=None):
+    def __init__(self, backend=None):
         """Initialize a Quantum Process Tomography experiment.
         Args:
             gate: The matrix representation of the gate whose
               tomography is to be performed. If no gate is provided
               an Identity gate is considered.
         """
-        self.gate = gate
-        self.gate_pulse = gate_pulse
-        if self.gate_pulse is not None and backend is None:
-            raise Exception("No backend provided. Backend is required when gate_pulse is provided.")
+
         self.backend = backend
-        self.lambda_arr = None
         self.chi_matrix = None
         self.beta = None
         self.beta_matrix = self.construct_beta_matrix()
@@ -927,30 +923,32 @@ class TwoQutritProcessTomography():
                 prob_dict[str(i)+str(j)] = np.absolute(state[(3*i)+j])**2
         return prob_dict
     
-    def _get_basis_0(self):
+    @staticmethod
+    def _get_basis_0():
         basis_set = []
         subspace = ['01', '02', '12']
         # For I operator.
         basis_set.append(get_i_pulse_0())
         for sub in subspace:
             for sdg in [False, True]:
-                basis_set.append(self._get_meas_basis_pulse_0(sub, sdg, measure=True))
+                basis_set.append(get_meas_basis_pulse(sub, sdg, measure=True))
             if sub=='01':
                 # For lambda_3.
-                basis_set.append(get_i_pulse_0())
+                basis_set.append(get_i_pulse())
         # For lambda_8.
-        basis_set.append(get_i_pulse_0())
+        basis_set.append(get_i_pulse())
 
         return basis_set
 
-    def _get_basis_1(self):
+    @staticmethod
+    def _get_basis_1():
         basis_set = []
         subspace = ['01', '02', '12']
         # For I operator.
         basis_set.append(get_i_pulse_1())
         for sub in subspace:
             for sdg in [False, True]:
-                basis_set.append(self._get_meas_basis_pulse_1(sub, sdg, measure=True))
+                basis_set.append(get_meas_basis_pulse_1(sub, sdg, measure=True))
             if sub=='01':
                 # For lambda_3.
                 basis_set.append(get_i_pulse_1())
@@ -1198,21 +1196,21 @@ class TwoQutritProcessTomography():
         
         return self.lambda_array
 
-    def get_lambda_process(self):
+    def get_lambda_process(self, gate=None, gate_pulse=None):
         """ The function that returns the lambda matrix corresponding to the 
         given gate as a flattened array."""
         
         lambda_matrix = []
         dt = 1/4.5e9
         
-        if self.gate_pulse is not None:
-            t_span = [0., self.gate_pulse.duration*dt]
+        if gate_pulse is not None:
+            t_span = [0., gate_pulse.duration*dt]
             state_array = []
             for i in range(9):
                 y0 = np.array([0,0,0,0,0,0,0,0,0])
                 y0[i] = 1
                 y0 = Statevector(y0)
-                pulse_job = self.backend.solve(self.gate_pulse, t_span=t_span, y0=y0)
+                pulse_job = self.backend.solve(gate_pulse, t_span=t_span, y0=y0)
                 state_array.append(pulse_job[0].y[-1].data)
             state_array = np.array(state_array)
             pulse_gate = state_array.transpose()
@@ -1223,7 +1221,7 @@ class TwoQutritProcessTomography():
                 evals, evecs = np.linalg.eig(basis_rho)
                 coeffs_list = []
                 for idx, _ in enumerate(evecs):
-                    if self.gate_pulse is not None:                        
+                    if gate_pulse is not None:                        
                         coeffs_list.append(
                             self.run_experiment_coeffs(
                                 mode='solve', 
@@ -1231,12 +1229,12 @@ class TwoQutritProcessTomography():
                                 gate=pulse_gate
                             )
                         )
-                    elif self.gate is not None:
+                    elif gate is not None:
                         coeffs_list.append(
                             self.run_experiment_coeffs(
                                 mode='solve', 
                                 init_state=evecs[:,idx], 
-                                gate=self.gate
+                                gate=gate
                             )
                         )
                     else:
@@ -1259,14 +1257,26 @@ class TwoQutritProcessTomography():
             for j in range(81):
                 lambda_array.append(lambda_matrix[i][j])
 
-        self.lambda_array = np.array(lambda_array)
+        lambda_array = np.array(lambda_array)
         
-        return self.lambda_array
+        return lambda_array
     
-    def run(self):
+    def run(self, gate=None, gate_pulse=None, backend=None):
         """Returns the process matrix corresponding to the gate."""
-        self.lambda_array = self.get_lambda_process()
-        chi_array = spsolve(csc_matrix(self.beta_matrix), self.lambda_array)
+        
+        if gate is None and gate_pulse is None:
+            raise Exception("Gate and gate_pulse not provided. Atleast one of gate/gate_pulse is required for QPT.")
+        if gate_pulse is not None:
+            if self.backend is None and backend is None:
+                raise Exception("Backend not provided for a gate_pulse input.")
+        if backend is not None:
+            self.backend = backend
+        
+        if gate_pulse is not None:
+            lambda_array = self.get_lambda_process(gate_pulse=gate_pulse)
+        elif gate is not None:
+            lambda_array = self.get_lambda_process(gate=gate)
+        chi_array = spsolve(csc_matrix(self.beta_matrix), lambda_array)
     
         chi_matrix = []
         for i in range(81):
@@ -1274,19 +1284,21 @@ class TwoQutritProcessTomography():
             for j in range(81):
                 chi_matrix[i].append(chi_array[(81*i)+j])
         
-        self.chi_matrix = np.array(chi_matrix)
+        chi_matrix = np.array(chi_matrix)
         
-        return self.chi_matrix
+        return chi_matrix
     
-    def plot_chi(self, reals=False, imag=False):
+    def plot_chi(self, chi_matrix=None, reals=False, imag=False):
         """The plotting function."""
         
+        if chi_matrix is None:
+            raise Exception("Please provide the process matrix as input.")
         if reals:
-            data = np.real(self.chi_matrix)
+            data = np.real(chi_matrix)
         elif imag:
-            data = np.imag(self.chi_matrix)
+            data = np.imag(chi_matrix)
         else:
-            data = np.abs(self.chi_matrix)
+            data = np.abs(chi_matrix)
         fig = plt.figure()
         ax = fig.add_subplot(111, projection='3d')
 
